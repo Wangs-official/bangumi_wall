@@ -1,0 +1,146 @@
+@import 'tailwindcss';
+
+:root {
+  --bg: #eceff4;
+  --panel: rgba(255, 255, 255, 0.72);
+  --panel-solid: #ffffff;
+  --border: rgba(15, 23, 42, 0.08);
+  --fg: #10151d;
+  --fg-muted: #64748b;
+  --accent: #ec4899;
+  --shadow: 0 6px 20px -6px rgba(15, 23, 42, 0.28);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1014;
+    --panel: rgba(24, 28, 35, 0.72);
+    --panel-solid: #181c23;
+    --border: rgba(255, 255, 255, 0.09);
+    --fg: #e8ecf2;
+    --fg-muted: #8b96a8;
+    --shadow: 0 6px 22px -6px rgba(0, 0, 0, 0.7);
+  }
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 顶部模糊背景板：取一张封面铺满并高斯模糊，Emby 那种氛围感 */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-size: cover;
+  background-position: center;
+  filter: blur(60px) saturate(1.4);
+  transform: scale(1.2);
+  opacity: 0.5;
+}
+.backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--bg) 20%, transparent) 0%,
+    color-mix(in srgb, var(--bg) 70%, transparent) 45%,
+    var(--bg) 100%
+  );
+}
+
+.panel {
+  background: var(--panel);
+  backdrop-filter: blur(24px) saturate(1.6);
+  border: 1px solid var(--border);
+}
+
+.pill {
+  border-radius: 9999px;
+  padding: 0.4rem 0.95rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--fg-muted);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pill:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+}
+.pill[data-active='true'] {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: var(--shadow);
+}
+.pill[data-active='true']:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--fg) 18%, transparent);
+  border-radius: 9999px;
+}
+
+/* ---- 封面栅格：手机上用更小的最小列宽和更紧的间距，一屏多放一列 ---- */
+.wall-grid {
+  display: grid;
+  gap: 0.9rem 0.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(var(--card-min-sm), 1fr));
+}
+@media (min-width: 640px) {
+  .wall-grid {
+    gap: 1.5rem 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(var(--card-min), 1fr));
+  }
+}
+
+/* 类别栏在手机上横向滚动，不折行 */
+.tab-scroll {
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.tab-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .pill {
+    padding: 0.35rem 0.7rem;
+    font-size: 0.8125rem;
+  }
+}
+
+/* 上千张卡片时，让浏览器跳过视口外的渲染与布局。
+   必须给出预估高度，否则滚动条长度会跳。 */
+.wall-grid > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 300px;
+}
+.divide-y > a {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 100px;
+}

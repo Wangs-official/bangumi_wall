@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers'
 import { refreshAccessToken } from './bangumi'
+import { decodeBase64Url, encodeBase64Url } from './encoding'
 
 const COOKIE = 'bw_session'
 const MAX_AGE = 60 * 60 * 24 * 180 // 半年
@@ -35,14 +36,14 @@ export async function readSession(): Promise<Session | null> {
   const raw = (await cookies()).get(COOKIE)?.value
   if (!raw) return null
   try {
-    return JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as Session
+    return JSON.parse(decodeBase64Url(raw)) as Session
   } catch {
     return null
   }
 }
 
 export function serializeSession(s: Session) {
-  return Buffer.from(JSON.stringify(s), 'utf8').toString('base64url')
+  return encodeBase64Url(JSON.stringify(s))
 }
 
 export const cookieOptions = {

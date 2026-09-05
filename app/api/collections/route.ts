@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { BangumiError, DEFAULT_SOURCE, isSourceId } from '@/lib/bangumi'
 import { getCollections } from '@/lib/collections-cache'
+import { sha1Base64Url } from '@/lib/encoding'
 import { cookieOptions, ensureToken, readSession, serializeSession } from '@/lib/session'
 
 export async function GET(req: Request) {
@@ -20,7 +20,7 @@ export async function GET(req: Request) {
     // 内容指纹只看收藏本身。cached 是「这次有没有命中服务端缓存」，
     // 冷热两次值不同，混进哈希会让 ETag 每次都变，304 永远命中不了。
     const itemsJson = JSON.stringify(items)
-    const etag = `W/"${createHash('sha1').update(itemsJson).digest('base64url').slice(0, 27)}"`
+    const etag = `W/"${await sha1Base64Url(itemsJson)}"`
     const body = `{"username":${JSON.stringify(session.username)},"source":"${source}","total":${items.length},"cached":${cached},"items":${itemsJson}}`
 
     if (!force && req.headers.get('if-none-match') === etag) {

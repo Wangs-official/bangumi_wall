@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { BangumiError, DEFAULT_SOURCE, isSourceId } from '@/lib/bangumi'
+import { BangumiError, DEFAULT_SOURCE, isSourceId, type SourceId } from '@/lib/bangumi'
 import { getCollections } from '@/lib/collections-cache'
 import { sha1Base64Url } from '@/lib/encoding'
 import { cookieOptions, ensureToken, readSession, serializeSession } from '@/lib/session'
@@ -11,8 +11,11 @@ export async function GET(req: Request) {
   const params = new URL(req.url).searchParams
   const force = params.get('refresh') === '1'
   const sourceParam = params.get('source')
-  const source = isSourceId(sourceParam) ? sourceParam : DEFAULT_SOURCE
+  const requested = isSourceId(sourceParam) ? sourceParam : DEFAULT_SOURCE
   const { token, refreshed } = await ensureToken(session, req)
+  // 镜像不转发 Authorization，带 token 就只能走官方源。缓存键也用这个实际值，
+  // 免得 OAuth 用户来回切换数据源时反复重拉同一份数据。
+  const source: SourceId = token ? 'official' : requested
 
   try {
     const { items, cached } = await getCollections(session.mode, session.username, source, token, force)

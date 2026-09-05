@@ -35,9 +35,9 @@ export async function GET(req: Request) {
     const slice = items.slice(offset, offset + limit)
 
     const edges: SeriesEdge[] = []
+    // 关联条目是公开数据，不带 token，这样才能继续走镜像（镜像不转发 Authorization）
     const base = baseOf(source)
     const headers: Record<string, string> = { 'User-Agent': USER_AGENT, Accept: 'application/json' }
-    if (token) headers.Authorization = `Bearer ${token}`
 
     let cursor = 0
     await Promise.all(

@@ -22,6 +22,19 @@ export function baseOf(source?: string | null) {
   return SOURCES[isSourceId(source) ? source : DEFAULT_SOURCE].base
 }
 
+/**
+ * 带 token 的请求一律走官方源。
+ *
+ * 镜像站不转发 Authorization —— 实测带一个无效 token 请求 /v0/me，镜像回
+ * 「need Login」（和不带 token 一模一样），官方回「access token has been
+ * expired or doesn't exist」。发过去既拿不到私有收藏，也等于白白把 token
+ * 交给第三方。镜像图床也不完整（抽查 6 张封面有 1 张 500），所以不做混搭，
+ * 认证请求整体走官方。
+ */
+export function apiBase(token?: string, source?: string | null) {
+  return token ? SOURCES.official.base : baseOf(source)
+}
+
 export const OAUTH_BASE = 'https://bgm.tv/oauth'
 
 // User-Agent 必须包含开发者 ID 和项目名，用默认 UA 会被封禁。
@@ -130,7 +143,10 @@ export class BangumiError extends Error {
 }
 
 async function get(path: string, token?: string, source?: string | null) {
-  const res = await fetch(`${baseOf(source)}${path}`, { headers: headers(token), cache: 'no-store' })
+  const res = await fetch(`${apiBase(token, source)}${path}`, {
+    headers: headers(token),
+    cache: 'no-store',
+  })
   if (!res.ok) {
     throw new BangumiError(res.status, `Bangumi API ${res.status}: ${(await res.text()).slice(0, 200)}`)
   }

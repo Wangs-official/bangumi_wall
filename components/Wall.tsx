@@ -324,20 +324,32 @@ export function Wall({ me }: { me: Me }) {
                   <p className="px-2 pt-1 pb-1.5 text-[11px]" style={{ color: 'var(--fg-muted)' }}>
                     更新源
                   </p>
-                  {(Object.keys(SOURCES) as SourceId[]).map((id) => (
-                    <button
-                      key={id}
-                      onClick={() => {
-                        setPrefs((p) => ({ ...p, source: id }))
-                        setSyncOpen(false)
-                      }}
-                      className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-[color-mix(in_srgb,var(--fg)_8%,transparent)]"
-                      style={{ color: 'var(--fg)' }}
-                    >
-                      {SOURCES[id].label}
-                      {prefs.source === id ? <span style={{ color: 'var(--accent)' }}>✓</span> : null}
-                    </button>
-                  ))}
+                  {(Object.keys(SOURCES) as SourceId[]).map((id) => {
+                    // 镜像站不转发 Authorization，登录后只能走官方源
+                    const locked = me.mode === 'oauth' && id !== 'official'
+                    const active = me.mode === 'oauth' ? id === 'official' : prefs.source === id
+                    return (
+                      <button
+                        key={id}
+                        disabled={locked}
+                        title={locked ? '登录后需要官方源才能读到私有收藏' : undefined}
+                        onClick={() => {
+                          setPrefs((p) => ({ ...p, source: id }))
+                          setSyncOpen(false)
+                        }}
+                        className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-[color-mix(in_srgb,var(--fg)_8%,transparent)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                        style={{ color: 'var(--fg)' }}
+                      >
+                        {SOURCES[id].label}
+                        {active ? <span style={{ color: 'var(--accent)' }}>✓</span> : null}
+                      </button>
+                    )
+                  })}
+                  {me.mode === 'oauth' ? (
+                    <p className="px-2 pb-1 text-[10px] leading-snug" style={{ color: 'var(--fg-muted)' }}>
+                      已登录，需官方源才能读私有收藏
+                    </p>
+                  ) : null}
 
                   <div className="my-1.5 h-px" style={{ background: 'var(--border)' }} />
 

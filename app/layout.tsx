@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import { RegisterSW } from '@/components/RegisterSW'
 import { avatarAt } from '@/lib/bangumi'
 import { readSession } from '@/lib/session'
 import './globals.css'
@@ -20,6 +21,12 @@ export async function generateMetadata(): Promise<Metadata> {
       icon: favicon ?? '/icon.ico',
       apple: touchIcon ?? '/apple-icon.png',
     },
+    // iOS 不读 manifest 的 display，得靠这组 meta 才能全屏打开
+    appleWebApp: {
+      capable: true,
+      title: '班固米墙',
+      statusBarStyle: 'default',
+    },
   }
 }
 
@@ -28,12 +35,20 @@ export const viewport: Viewport = {
   initialScale: 1,
   // 允许用户捏合放大看封面细节
   maximumScale: 5,
+  // 装成应用后这决定状态栏底色，跟着明暗主题走
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#eceff4' },
+    { media: '(prefers-color-scheme: dark)', color: '#0d1014' },
+  ],
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        {children}
+        <RegisterSW />
+      </body>
     </html>
   )
 }

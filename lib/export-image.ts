@@ -1,10 +1,12 @@
-import { coverAt, type WallItem } from './bangumi'
+import { coverAt, COVER_WIDTHS, type CoverWidth, type WallItem } from './bangumi'
 import { renderSubtitle, renderTitle, type DisplayConfig } from './display'
 
 /**
  * 把当前这面墙画成一张长图。
  *
- * 宽度固定为手机屏宽（主流 1080px），高度随条目数增长；每行 4 部。
+ * 宽度固定为手机屏宽（主流 1080px），高度随条目数增长；默认每行 4 部。
+ * 条目多到一列 4 部会超出浏览器画布高度上限时，自动加密列数（最多 12 列），
+ * 格子变小的同时字号、间距等比缩小，看上去就是同一张墙排得更密。
  * 成图按 1:1 对应手机物理像素，所以字号也按物理像素给——1080 宽的图上 30px 的字，
  * 铺满 1080 物理像素的手机屏后约等于 11 个 CSS 像素，正好能看清。
  *
@@ -14,15 +16,25 @@ import { renderSubtitle, renderTitle, type DisplayConfig } from './display'
 
 /** 手机屏宽 */
 const OUT_W = 1080
-const COLS = 4
 const PAD = 32
-const GAP = 12
-const CELL_W = Math.floor((OUT_W - PAD * 2 - GAP * (COLS - 1)) / COLS)
+
+/** 排版基准：4 列时的格子宽度、间距、字号，其余列数按格子宽度等比缩放 */
+const BASE_COLS = 4
+const BASE_GAP = 12
+const BASE_CELL_W = Math.floor((OUT_W - PAD * 2 - BASE_GAP * (BASE_COLS - 1)) / BASE_COLS)
+const BASE_TITLE_LINE = 38
+const BASE_SUB_LINE = 32
+const BASE_TITLE_FONT = 30
+const BASE_SUB_FONT = 24
+const BASE_PLACEHOLDER_FONT = 22
+/** 封面底边到第一行标题基线的距离 */
+const BASE_CAPTION_TOP = 40
+
+/** 再密就只剩一堆小色块了，没有意义 */
+const MAX_COLS = 12
 
 const HEADER_H = 190
 const FOOTER_H = 90
-const TITLE_LINE = 38
-const SUB_LINE = 32
 
 /** 浏览器 canvas 的单边像素上限，超过就画不出来（Chrome 是 65535，留足余量） */
 const MAX_CANVAS_H = 32000
@@ -81,20 +93,59 @@ function wrap(ctx: CanvasRenderingContext2D, text: string, max: number, limit: n
   return lines
 }
 
-/** 当前显示设置下每格的高度，以及画布高度上限决定的最大条目数 */
-function metrics(display: DisplayConfig) {
-  const coverH = Math.round((CELL_W * 3) / 2)
-  const showTitle = display.titleMode !== 'hidden'
-  const showSub = display.subtitleFields.length > 0
-  const captionH = (showTitle ? TITLE_LINE * 2 : 0) + (showSub ? SUB_LINE : 0)
-  const cellH = coverH + (captionH ? captionH + 10 : 0)
-  const maxRows = Math.floor((MAX_CANVAS_H - HEADER_H - FOOTER_H - PAD) / (cellH + GAP))
-  return { coverH, showTitle, showSub, cellH, maxItems: maxRows * COLS }
+/** 格子实占 cellW，取往上一档的图源，缩下来才不发虚 */
+function coverWidthFor(cellW: number): CoverWidth {
+  return COVER_WIDTHS.find((w) => w >= cellW * 1.5) ?? COVER_WIDTHS[COVER_WIDTHS.length - 1]
 }
 
-/** 供 UI 提前提示上限用 */
+/** 某个列数下的一套排版参数，以及画布高度上限决定的最大条目数 */
+function layout(cols: number, display: DisplayConfig) {
+  const gap = Math.max(4, Math.round((BASE_GAP * BASE_COLS) / cols))
+  const cellW = Math.floor((OUT_W - PAD * 2 - gap * (cols - 1)) / cols)
+  const coverH = Math.round((cellW * 3) / 2)
+  const scale = cellW / BASE_CELL_W
+  const px = (base: number) => Math.max(1, Math.round(base * scale))
+
+  const titleLine = px(BASE_TITLE_LINE)
+  const subLine = px(BASE_SUB_LINE)
+  const showTitle = display.titleMode !== 'hidden'
+  const showSub = display.subtitleFields.length > 0
+  const captionH = (showTitle ? titleLine * 2 : 0) + (showSub ? subLine : 0)
+  const cellH = coverH + (captionH ? captionH + px(10) : 0)
+
+  const maxRows = Math.floor((MAX_CANVAS_H - HEADER_H - FOOTER_H - PAD + gap) / (cellH + gap))
+  return {
+    cols,
+    gap,
+    cellW,
+    coverH,
+    cellH,
+    titleLine,
+    subLine,
+    showTitle,
+    showSub,
+    captionTop: px(BASE_CAPTION_TOP),
+    titleFont: px(BASE_TITLE_FONT),
+    subFont: px(BASE_SUB_FONT),
+    placeholderFont: px(BASE_PLACEHOLDER_FONT),
+    coverSrcW: coverWidthFor(cellW),
+    maxItems: Math.max(0, maxRows) * cols,
+  }
+}
+
+/** 挑能装下这么多条目的最疏排法；实在装不下就返回最密的那套，交给调用方报错 */
+function pickLayout(count: number, display: DisplayConfig) {
+  let densest = layout(BASE_COLS, display)
+  for (let cols = BASE_COLS; cols <= MAX_COLS; cols++) {
+    densest = layout(cols, display)
+    if (count <= densest.maxItems) return densest
+  }
+  return densest
+}
+
+/** 供 UI 提前提示上限用：最密排法能画下多少项 */
 export function maxExportItems(display: DisplayConfig) {
-  return metrics(display).maxItems
+  return layout(MAX_COLS, display).maxItems
 }
 
 export interface ExportOptions {
@@ -114,17 +165,17 @@ export async function renderWallImage({
   caption,
   onProgress,
 }: ExportOptions): Promise<Blob> {
-  const { coverH, showTitle, showSub, cellH, maxItems } = metrics(display)
+  const L = pickLayout(items.length, display)
 
-  if (items.length > maxItems) {
+  if (items.length > L.maxItems) {
     throw new Error(
-      `条目太多画不下：每行 4 部时最多 ${maxItems} 项（受浏览器画布高度上限限制），当前 ${items.length} 项。先按类别或状态筛一下，或把标题设为「隐藏」以压缩每行高度。`,
+      `条目太多画不下：排到每行 ${L.cols} 部也只装得下 ${L.maxItems} 项（受浏览器画布高度上限限制），当前 ${items.length} 项。先按类别或状态筛一下，或把标题设为「隐藏」以压缩每行高度。`,
     )
   }
 
-  const rows = Math.ceil(items.length / COLS)
+  const rows = Math.ceil(items.length / L.cols)
   const width = OUT_W
-  const height = HEADER_H + rows * cellH + (rows - 1) * GAP + FOOTER_H + PAD
+  const height = HEADER_H + rows * L.cellH + (rows - 1) * L.gap + FOOTER_H + PAD
 
   // 用页面当前的配色，导出的图和屏幕上看到的一致
   const css = getComputedStyle(document.documentElement)
@@ -166,53 +217,52 @@ export async function renderWallImage({
       while (cursor < items.length) {
         const idx = cursor++
         const item = items[idx]
-        // 格子实占 245px，取 400 档绰绰有余
-        const img = await loadImage(coverAt(item.cover, 400) ?? '')
-        const x = PAD + (idx % COLS) * (CELL_W + GAP)
-        const y = HEADER_H + Math.floor(idx / COLS) * (cellH + GAP)
+        const img = await loadImage(coverAt(item.cover, L.coverSrcW) ?? '')
+        const x = PAD + (idx % L.cols) * (L.cellW + L.gap)
+        const y = HEADER_H + Math.floor(idx / L.cols) * (L.cellH + L.gap)
 
         ctx.save()
-        roundRect(ctx, x, y, CELL_W, coverH, 10)
+        roundRect(ctx, x, y, L.cellW, L.coverH, Math.max(2, Math.round(10 * (L.cellW / BASE_CELL_W))))
         ctx.clip()
         if (img) {
           // object-fit: cover
-          const s = Math.max(CELL_W / img.width, coverH / img.height)
+          const s = Math.max(L.cellW / img.width, L.coverH / img.height)
           const dw = img.width * s
           const dh = img.height * s
-          ctx.drawImage(img, x + (CELL_W - dw) / 2, y + (coverH - dh) / 2, dw, dh)
+          ctx.drawImage(img, x + (L.cellW - dw) / 2, y + (L.coverH - dh) / 2, dw, dh)
         } else {
           ctx.fillStyle = muted + '33'
-          ctx.fillRect(x, y, CELL_W, coverH)
+          ctx.fillRect(x, y, L.cellW, L.coverH)
           ctx.fillStyle = muted
-          ctx.font = `22px ${FONT}`
+          ctx.font = `${L.placeholderFont}px ${FONT}`
           ctx.textAlign = 'center'
-          ctx.fillText(ellipsize(ctx, item.name, CELL_W - 20), x + CELL_W / 2, y + coverH / 2)
+          ctx.fillText(ellipsize(ctx, item.name, L.cellW - 20), x + L.cellW / 2, y + L.coverH / 2)
           ctx.textAlign = 'left'
         }
         ctx.restore()
 
-        if (showTitle || showSub) {
-          const cx = x + CELL_W / 2
+        if (L.showTitle || L.showSub) {
+          const cx = x + L.cellW / 2
           ctx.textAlign = 'center'
-          let ty = y + coverH + 40
+          let ty = y + L.coverH + L.captionTop
 
-          if (showTitle) {
+          if (L.showTitle) {
             ctx.fillStyle = fg
-            ctx.font = `500 30px ${FONT}`
-            for (const line of wrap(ctx, renderTitle(item, display.titleMode) ?? '', CELL_W, 2)) {
+            ctx.font = `500 ${L.titleFont}px ${FONT}`
+            for (const line of wrap(ctx, renderTitle(item, display.titleMode) ?? '', L.cellW, 2)) {
               ctx.fillText(line, cx, ty)
-              ty += TITLE_LINE
+              ty += L.titleLine
             }
             // 不论标题占一行还是两行，小标题都对齐到同一基线
-            ty = y + coverH + 40 + TITLE_LINE * 2
+            ty = y + L.coverH + L.captionTop + L.titleLine * 2
           }
 
-          if (showSub) {
+          if (L.showSub) {
             const sub = renderSubtitle(item, display.subtitleFields)
             if (sub) {
               ctx.fillStyle = muted
-              ctx.font = `24px ${FONT}`
-              ctx.fillText(ellipsize(ctx, sub, CELL_W), cx, ty)
+              ctx.font = `${L.subFont}px ${FONT}`
+              ctx.fillText(ellipsize(ctx, sub, L.cellW), cx, ty)
             }
           }
           ctx.textAlign = 'left'

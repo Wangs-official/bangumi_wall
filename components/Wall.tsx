@@ -22,6 +22,7 @@ import {
 import { renderWallImage } from '@/lib/export-image'
 import { buildClusters } from '@/lib/series'
 import { BAR_BTN, BAR_BTN_STYLE, Chip, ChipGroup, Divider } from './Chip'
+import { ButtonFill, ProgressBar } from './Progress'
 import { CoverCard } from './CoverCard'
 import { ListRow } from './ListRow'
 import { useCollections } from './useCollections'
@@ -114,6 +115,8 @@ export function Wall({ me }: { me: Me }) {
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
   const [exporting, setExporting] = useState('')
+  /** 导出进度 0~1，用来在按钮里画进度条 */
+  const [progress, setProgress] = useState(0)
   const [syncOpen, setSyncOpen] = useState(false)
   const syncRef = useRef<HTMLDivElement>(null)
 
@@ -231,9 +234,16 @@ export function Wall({ me }: { me: Me }) {
 
   const coverOnly = display.titleMode === 'hidden' && display.subtitleFields.length === 0
 
+  // 第一页还没回来时总数未知，交给进度条画不确定态
+  const p = collections.progress
+  const ratio = p && p.total > 0 ? p.loaded / p.total : null
+  const loadRatio = collections.loading ? ratio : null
+  const syncRatio = collections.revalidating ? ratio : null
+
   async function exportImage() {
     if (!visible.length || exporting) return
     setExporting('准备中…')
+    setProgress(0)
     try {
       const parts = [`共 ${visible.length} 项`]
       if (prefs.types.length) parts.push(prefs.types.map((t) => SUBJECT_TYPE_LABEL[t]).join(' / '))
@@ -244,7 +254,11 @@ export function Wall({ me }: { me: Me }) {
         display,
         who: me.nickname,
         caption: parts.join(' · '),
-        onProgress: (n, total) => setExporting(`绘制中 ${n}/${total}`),
+        onProgress: (n, total) => {
+          setProgress(n / total)
+          // 画完最后一格还要编码，长图能编码好几秒，别让进度条停在那儿没话说
+          setExporting(n === total ? '生成图片…' : `绘制中 ${n}/${total}`)
+        },
       })
 
       const url = URL.createObjectURL(blob)
@@ -257,6 +271,7 @@ export function Wall({ me }: { me: Me }) {
       setError(e instanceof Error ? e.message : '导出失败')
     } finally {
       setExporting('')
+      setProgress(0)
     }
   }
 
@@ -295,15 +310,27 @@ export function Wall({ me }: { me: Me }) {
             <button
               onClick={exportImage}
               disabled={Boolean(exporting)}
-              className={`${BAR_BTN} disabled:opacity-60`}
+              className={`${BAR_BTN} relative overflow-hidden disabled:opacity-60`}
               style={BAR_BTN_STYLE}
             >
-              {exporting || '导出长图'}
+              {exporting ? <ButtonFill value={progress} /> : null}
+              <span className="relative">{exporting || '导出长图'}</span>
             </button>
 
             <div className="relative" ref={syncRef}>
-              <button onClick={() => setSyncOpen((v) => !v)} className={BAR_BTN} style={BAR_BTN_STYLE}>
-                {collections.revalidating ? '同步中…' : '同步 ▾'}
+              <button
+                onClick={() => setSyncOpen((v) => !v)}
+                className={`${BAR_BTN} relative overflow-hidden`}
+                style={BAR_BTN_STYLE}
+              >
+                {collections.revalidating ? <ButtonFill value={syncRatio} /> : null}
+                <span className="relative">
+                  {collections.revalidating
+                    ? syncRatio === null
+                      ? '同步中…'
+                      : `同步中 ${Math.round(syncRatio * 100)}%`
+                    : '同步 ▾'}
+                </span>
               </button>
 
               {syncOpen ? (
@@ -543,6 +570,15 @@ export function Wall({ me }: { me: Me }) {
         {error || collections.error ? (
           <div className="panel rounded-xl p-4 text-sm text-red-500">{error || collections.error}</div>
         ) : collections.loading ? (
+          <>
+          <ProgressBar
+            value={loadRatio}
+            label={
+              collections.progress
+                ? `正在获取收藏 ${collections.progress.loaded}/${collections.progress.total}`
+                : '正在获取收藏…'
+            }
+          />
           <div
             className="wall-grid"
             style={
@@ -560,6 +596,7 @@ export function Wall({ me }: { me: Me }) {
               />
             ))}
           </div>
+          </>
         ) : visible.length === 0 ? (
           <div className="panel rounded-xl p-8 text-center text-sm" style={{ color: 'var(--fg-muted)' }}>
             没有符合条件的收藏

@@ -1,4 +1,4 @@
-import { fetchAllCollections, type SourceId, type WallItem } from './bangumi'
+import { fetchAllCollections, type ProgressFn, type SourceId, type WallItem } from './bangumi'
 
 /**
  * 全量收藏缓存。/api/collections 和 /api/series 共用同一份，
@@ -22,11 +22,13 @@ export async function getCollections(
   source: SourceId,
   token?: string,
   force = false,
+  /** 只有真去翻页时才会被调用；命中缓存直接返回，一次都不报 */
+  onProgress?: ProgressFn,
 ): Promise<{ items: WallItem[]; cached: boolean }> {
   const cached = force ? null : peek(mode, username, source)
   if (cached) return { items: cached, cached: true }
 
-  const items = await fetchAllCollections(username, token, source)
+  const items = await fetchAllCollections(username, token, source, onProgress)
   cache.set(key(mode, username, source), { at: Date.now(), items })
   return { items, cached: false }
 }

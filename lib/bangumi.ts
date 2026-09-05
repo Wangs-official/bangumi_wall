@@ -189,18 +189,27 @@ async function fetchPage(username: string, offset: number, token?: string, sourc
   return get(`/v0/users/${encodeURIComponent(username)}/collections?${q}`, token, source)
 }
 
+/** 拉取进度回调：已取回的条目数 / 总数。总数在第一页返回后才知道。 */
+export type ProgressFn = (loaded: number, total: number) => void
+
 /**
  * 拉取用户全部收藏。先取第一页拿 total，再并发补齐剩余页。
  * 不带 subject_type / type 过滤 —— 全量取回后由前端即时筛选，切换类别不再打网络。
+ *
+ * 页是并发拉的，回来的顺序不定，所以 onProgress 只报「已回来多少条」，
+ * 最后再按 offset 拼回原顺序。
  */
 export async function fetchAllCollections(
   username: string,
   token?: string,
   source?: string | null,
+  onProgress?: ProgressFn,
 ): Promise<WallItem[]> {
   const first = await fetchPage(username, 0, token, source)
   const total: number = first.total ?? 0
   const items: any[] = [...(first.data ?? [])]
+  let loaded = items.length
+  onProgress?.(loaded, total)
 
   const offsets: number[] = []
   for (let o = PAGE_SIZE; o < total; o += PAGE_SIZE) offsets.push(o)
@@ -212,7 +221,10 @@ export async function fetchAllCollections(
       while (cursor < offsets.length) {
         const offset = offsets[cursor++]
         const page = await fetchPage(username, offset, token, source)
-        pages.set(offset, page.data ?? [])
+        const data = page.data ?? []
+        pages.set(offset, data)
+        loaded += data.length
+        onProgress?.(loaded, total)
       }
     }),
   )

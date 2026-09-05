@@ -14,6 +14,7 @@ import {
 } from '@/lib/grid'
 import { renderGridImage } from '@/lib/export-grid'
 import { BAR_BTN, BAR_BTN_STYLE } from './Chip'
+import { ProgressBar } from './Progress'
 import { useCollections } from './useCollections'
 
 interface Me {
@@ -253,9 +254,24 @@ export function Grid({ me, source }: { me: Me; source: SourceId }) {
             ))}
           </div>
 
-          <p className="mb-2 text-[11px]" style={{ color: 'var(--fg-muted)' }}>
-            {collections.loading ? '加载中…' : `${pool.length} 部 · 拖到右边，或点选后再点格子`}
-          </p>
+          {collections.loading ? (
+            <ProgressBar
+              value={
+                collections.progress && collections.progress.total > 0
+                  ? collections.progress.loaded / collections.progress.total
+                  : null
+              }
+              label={
+                collections.progress
+                  ? `正在获取收藏 ${collections.progress.loaded}/${collections.progress.total}`
+                  : '正在获取收藏…'
+              }
+            />
+          ) : (
+            <p className="mb-2 text-[11px]" style={{ color: 'var(--fg-muted)' }}>
+              {`${pool.length} 部 · 拖到右边，或点选后再点格子`}
+            </p>
+          )}
 
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div className="grid grid-cols-4 gap-1.5 lg:grid-cols-3">

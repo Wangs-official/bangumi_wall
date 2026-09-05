@@ -1,8 +1,12 @@
+![](https://lsky.ry.mk/i/2026/09/05/e1f91ed084eb8.webp)
+
 # 我的班固米墙（bangumi_wall）
 
 把自己在 Bangumi 上收藏的番剧 / 书籍 / 游戏 / 音乐 / 三次元，做成一面封面墙，以便快速展示成分
 
 此项目非官方项目
+
+发布页：https://bgm.tv/group/topic/470228
 
 ## 功能
 

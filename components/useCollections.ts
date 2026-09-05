@@ -4,8 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SourceId, WallItem } from '@/lib/bangumi'
 
 const VERSION = 2
-/** 缓存多久之后才在后台自动校验；平时进站直接吃缓存，不打接口 */
-const STALE_AFTER = 6 * 60 * 60 * 1000
+/**
+ * 进站即在后台同步一次。只有距上次同步不到这个间隔才跳过 ——
+ * 用来挡住页面间来回跳转、以及开发模式下 StrictMode 的重复挂载。
+ */
+const MIN_SYNC_INTERVAL = 60 * 1000
 
 interface Cached {
   v: number
@@ -52,9 +55,9 @@ function write(username: string, source: SourceId, c: Cached) {
 /**
  * 收藏数据的加载与缓存。
  *
- * 进站先用 localStorage 里的缓存直接渲染，不等网络；只有缓存超过 6 小时
- * 或用户点「立即同步」才去请求。请求带上 ETag，内容没变服务端回 304，
- * 省掉几百 KB 的下载。
+ * 进站先用 localStorage 里的缓存直接渲染，不等网络（首屏因此瞬开），
+ * 同时在后台发一次校验请求把数据刷新到最新。校验带 ETag，
+ * 内容没变服务端回 304，省掉几百 KB 下载；变了就无感替换掉页面上的数据。
  */
 export function useCollections(username: string, source: SourceId) {
   const [state, setState] = useState<CollectionsState>({
@@ -145,7 +148,8 @@ export function useCollections(username: string, source: SourceId) {
         syncedAt: cached.at,
         fromCache: true,
       })
-      if (Date.now() - cached.at < STALE_AFTER) return
+      // 刚同步过就不再重复打，其余情况一律后台刷新
+      if (Date.now() - cached.at < MIN_SYNC_INTERVAL) return
     } else {
       setState((s) => ({ ...s, items: null, loading: true, syncedAt: null }))
     }

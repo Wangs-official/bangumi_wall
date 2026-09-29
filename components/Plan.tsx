@@ -749,6 +749,8 @@ export function Plan({ me, source }: { me: Me; source: SourceId }) {
                 const sid = row.item.id
                 const hoverIdx = hover?.sid === sid ? hover.idx : null
                 const canDropHere = picked?.sid === sid
+                /** 这部番的排期弹窗开着：高亮这一行，告诉用户集要拖到这里 */
+                const trayHere = tray?.sid === sid && row.tray.length > 0
                 return (
                   <div key={sid} style={{ borderBottom: '1px solid var(--border)' }}>
                     <div className="flex" style={{ height: ROW_H }}>
@@ -764,7 +766,13 @@ export function Plan({ me, source }: { me: Me; source: SourceId }) {
                         style={{
                           width: days.length * dayW,
                           cursor: canDropHere ? 'copy' : 'pointer',
-                          background: canDropHere ? 'color-mix(in srgb, var(--accent) 5%, transparent)' : undefined,
+                          background: canDropHere
+                            ? 'color-mix(in srgb, var(--accent) 5%, transparent)'
+                            : trayHere
+                              ? `color-mix(in srgb, ${MANUAL} ${chipDragging ? 16 : 9}%, transparent)`
+                              : undefined,
+                          outline: trayHere ? `2px dashed ${MANUAL}` : undefined,
+                          outlineOffset: -3,
                         }}
                         onDragOver={(e) => {
                           if (dragRef.current?.sid !== sid) return
@@ -797,6 +805,19 @@ export function Plan({ me, source }: { me: Me; source: SourceId }) {
                           }
                         }}
                       >
+                        {trayHere ? (
+                          <div
+                            className="plan-drop-hint pointer-events-none sticky flex h-full w-fit items-center"
+                            style={{ left: 'calc(var(--label-w) + 10px)' }}
+                          >
+                            <span
+                              className="rounded-full px-2.5 py-1 text-[11px] font-medium whitespace-nowrap text-white"
+                              style={{ background: MANUAL, boxShadow: 'var(--shadow)' }}
+                            >
+                              {chipDragging ? '松手放在想看的那天' : '把弹窗里的集拖到这一行的某一天'}
+                            </span>
+                          </div>
+                        ) : null}
                         {hoverIdx !== null ? (
                           <div
                             className="pointer-events-none absolute top-1.5 bottom-1.5 rounded-md"
@@ -1083,6 +1104,17 @@ function StatusBadge({ status }: { status: AirStatus }) {
   )
 }
 
+function StepNo({ n }: { n: number }) {
+  return (
+    <span
+      className="mr-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full align-[-2px] text-[10px] font-semibold text-white"
+      style={{ background: MANUAL }}
+    >
+      {n}
+    </span>
+  )
+}
+
 function Legend({ color, label }: { color: string; label: string }) {
   return (
     <span className="flex items-center gap-1">
@@ -1196,16 +1228,15 @@ function TrayPopover({
     const place = () => {
       const el = ref.current
       if (!el) return
-      const a = anchor.getBoundingClientRect()
+      // 以整行的番名格为准：弹窗贴在这一行下面，不挡这部番自己的时间线（集要往那儿拖）
+      const a = (anchor.closest('[data-label]') ?? anchor).getBoundingClientRect()
       const w = el.offsetWidth
       const h = el.offsetHeight
-      let left = a.right + 8
-      let top = a.top - 8
-      if (left + w > window.innerWidth - 8) {
-        left = Math.max(8, window.innerWidth - w - 8)
-        top = a.bottom + 6
-      }
-      top = Math.max(8, Math.min(top, window.innerHeight - h - 8))
+      const left = Math.max(8, Math.min(a.left + 8, window.innerWidth - w - 8))
+      let top = a.bottom + 6
+      // 下面放不下就翻到这一行上面
+      if (top + h > window.innerHeight - 8) top = a.top - h - 6
+      top = Math.max(8, top)
       setPos({ left, top })
     }
     place()
@@ -1278,11 +1309,23 @@ function TrayPopover({
         </button>
       </div>
 
-      <p className="mb-1.5 text-[11px]" style={{ color: 'var(--fg-muted)' }}>
-        {row.tray.length ? `${row.tray.length} 集待排 · 拖到这一行的日期上，或点一下再点日期` : '都排好了 · 把集块拖回这里可以取消排期'}
-      </p>
       {row.tray.length ? (
-        <div className="mb-3 flex max-h-28 flex-wrap gap-1 overflow-y-auto">
+        <>
+          <p className="mb-0.5 font-medium">
+            <StepNo n={1} />
+            拖集块到时间线
+          </p>
+          <p className="mb-2 text-[11px] leading-relaxed" style={{ color: 'var(--fg-muted)' }}>
+            按住下面的集块，拖到时间线上<b style={{ color: MANUAL }}>虚线高亮的那一行</b>，在想看的那天松手；手机上点一下集块，再点日期
+          </p>
+        </>
+      ) : (
+        <p className="mb-1.5 text-[11px]" style={{ color: 'var(--fg-muted)' }}>
+          都排好了 · 把时间线上的集块拖回这里可以取消排期
+        </p>
+      )}
+      {row.tray.length ? (
+        <div className="mb-3 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
           {row.tray.map((e) => (
             <button
               key={e.id}
@@ -1295,9 +1338,13 @@ function TrayPopover({
               onDragEnd={onDragEnd}
               onClick={() => onPick([e.id])}
               title={`第${e.sort}话${e.name ? ` ${e.name}` : ''}${e.airdate ? `\n首播 ${e.airdate}` : ''}`}
-              className="min-w-7 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums"
-              style={{ background: `color-mix(in srgb, ${MANUAL} 16%, transparent)`, color: MANUAL, cursor: 'grab' }}
+              // 做成和时间线上一样的实心集块，带抓手，一看就是能拖的
+              className="flex items-center gap-1 rounded-md py-1 pr-2 pl-1 text-[11px] font-semibold text-white tabular-nums shadow-sm transition-transform hover:-translate-y-0.5 hover:shadow-md active:cursor-grabbing"
+              style={{ background: MANUAL, cursor: 'grab' }}
             >
+              <span aria-hidden className="text-[10px] leading-none opacity-60">
+                ⠿
+              </span>
               {e.sort}
             </button>
           ))}
@@ -1306,6 +1353,10 @@ function TrayPopover({
 
       {row.tray.length ? (
         <div className="space-y-2 rounded-lg p-2" style={{ background: 'color-mix(in srgb, var(--fg) 5%, transparent)' }}>
+          <p className="font-medium">
+            <StepNo n={2} />
+            或者一键自动排
+          </p>
           <div className="flex flex-wrap gap-1">
             {AUTO_MODES.map((m) => (
               <button

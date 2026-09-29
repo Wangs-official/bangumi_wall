@@ -182,3 +182,22 @@ body {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* 看番时间线：排期弹窗开着时，提示「拖到这一行」的小标签轻轻呼吸 */
+@keyframes plan-drop-hint {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+.plan-drop-hint {
+  animation: plan-drop-hint 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .plan-drop-hint {
+    animation: none;
+  }
+}

@@ -3,7 +3,7 @@
 //
 // 刻意不缓存 /api/：收藏数据自己有 localStorage 缓存和 ETag 校验，
 // 再套一层只会让「进站自动同步」拿到过期数据。
-const CACHE = 'bw-shell-v2'
+const CACHE = 'bw-shell-v3'
 
 self.addEventListener('install', (e) => {
   // 首屏资源是在 SW 接管之前加载的，它一次都碰不到，所以这里先把入口页塞进缓存，
@@ -11,7 +11,7 @@ self.addEventListener('install', (e) => {
   e.waitUntil(
     caches
       .open(CACHE)
-      .then((c) => c.addAll(['/', '/grid']))
+      .then((c) => c.addAll(['/', '/grid', '/plan']))
       .catch(() => {})
       .then(() => self.skipWaiting()),
   )

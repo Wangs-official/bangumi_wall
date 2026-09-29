@@ -306,6 +306,9 @@ export function Wall({ me }: { me: Me }) {
             <Link href="/grid" className={BAR_BTN} style={BAR_BTN_STYLE}>
               喜好表
             </Link>
+            <Link href="/plan" className={BAR_BTN} style={BAR_BTN_STYLE}>
+              时间线
+            </Link>
 
             <button
               onClick={exportImage}

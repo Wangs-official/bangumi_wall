@@ -25,6 +25,7 @@ export default function manifest(): MetadataRoute.Manifest {
     shortcuts: [
       { name: '封面墙', url: '/' },
       { name: '生涯个人喜好表', url: '/grid' },
+      { name: '看番时间线', url: '/plan' },
     ],
   }
 }

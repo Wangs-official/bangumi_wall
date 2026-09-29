@@ -194,6 +194,9 @@ export function Grid({ me, source }: { me: Me; source: SourceId }) {
           <Link href="/" className={BAR_BTN} style={BAR_BTN_STYLE}>
             ← 封面墙
           </Link>
+          <Link href="/plan" className={BAR_BTN} style={BAR_BTN_STYLE}>
+            时间线
+          </Link>
           <button onClick={() => setGrid(defaultGrid(subjectType))} className={BAR_BTN} style={BAR_BTN_STYLE}>
             重置
           </button>

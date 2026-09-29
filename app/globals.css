@@ -164,3 +164,21 @@ body {
     opacity: 0.5;
   }
 }
+
+/* ---- 看番时间线：左侧番名列宽，手机上窄一些 ---- */
+.timeline {
+  --label-w: 120px;
+}
+@media (min-width: 640px) {
+  .timeline {
+    --label-w: 200px;
+  }
+}
+
+/* 隐藏滚动条但照常能滚（触控板、滚轮、Shift+滚轮横向） */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

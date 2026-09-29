@@ -1,16 +1,19 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { COLLECTION_TYPES, COLLECTION_TYPE_LABEL, coverAt, subjectUrl, type SourceId, type WallItem } from '@/lib/bangumi'
 import {
   AIR_STATUS_LABEL,
+  AUTO_MODES,
   addDays,
+  autoPlan,
   airStatus,
   diffDays,
   isOddDay,
   isoWeek,
   loadPlan,
+  originalBase,
   parseDay,
   relativeDayLabel,
   savePlan,
@@ -19,6 +22,7 @@ import {
   watchedSet,
   weekdayOf,
   type AirStatus,
+  type AutoMode,
   type Episode,
   type PlanState,
 } from '@/lib/plan'
@@ -111,8 +115,17 @@ export function Plan({ me, source }: { me: Me; source: SourceId }) {
   const [dayW, setDayW] = useState<number>(ZOOMS[1].w)
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<number[]>([3, 1])
-  /** 待排栏手动展开／收起的记录，没记录的按默认规则 */
-  const [trayOpen, setTrayOpen] = useState<Record<number, boolean>>({})
+  /** 待排小弹窗：开在哪部番旁边 */
+  const [tray, setTray] = useState<{ sid: number; anchor: HTMLElement } | null>(null)
+  /** 正从弹窗里拖集出来：弹窗变透明、放行鼠标，好让下面那一行接得住 */
+  const [chipDragging, setChipDragging] = useState(false)
+  /** 框选中的集 id */
+  const [sel, setSel] = useState<Set<number>>(new Set())
+  /** 框选矩形，坐标相对时间线内容区 */
+  const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const innerRef = useRef<HTMLDivElement>(null)
+  /** 刚框选完，紧跟着的那次 click 不算点日期 */
+  const suppressClick = useRef(false)
   /** 点选模式（手机上没有拖拽）：先点集，再点那一行的某天 */
   const [picked, setPicked] = useState<Picked | null>(null)
   const [hover, setHover] = useState<{ sid: number; idx: number } | null>(null)
@@ -317,26 +330,13 @@ export function Plan({ me, source }: { me: Me; source: SourceId }) {
     }
   }, [unschedule])
 
-  /** 把待排的集从选中那天起，每天 n 集往后排 */
-  function autoSchedule(row: Row, perDay: number) {
+  function autoSchedule(row: Row, start: string, mode: AutoMode, perSlot: number) {
     if (!plan || !row.tray.length) return
-    const next = { ...plan.schedule }
-    let d = focus < today ? today : focus
-    let count = 0
-    for (const ep of row.tray) {
-      if (count >= perDay) {
-        d = addDays(d, 1)
-        count = 0
-      }
-      if (ep.airdate && ep.airdate > d) {
-        d = ep.airdate
-        count = 0
-      }
-      next[ep.id] = d
-      count++
-    }
-    setPlan({ ...plan, schedule: next })
-    setTrayOpen((o) => ({ ...o, [row.item.id]: false }))
+    const planned = autoPlan(row.tray, start, mode, perSlot)
+    setPlan({ ...plan, schedule: { ...plan.schedule, ...planned } })
+    setTray(null)
+    const last = Object.values(planned).reduce((a, b) => (a > b ? a : b))
+    setToast(`已排 ${row.tray.length} 集，排到 ${shortDate(last)}`)
   }
 
   function clearRow(row: Row) {
@@ -345,6 +345,81 @@ export function Plan({ me, source }: { me: Me; source: SourceId }) {
     for (const e of row.eps) delete next[e.id]
     setPlan({ ...plan, schedule: next })
   }
+
+  function clearSel() {
+    setSel((s) => (s.size ? new Set() : s))
+  }
+
+  // 在时间线空白处按住拖出一个框，框到的集块都选中；按住 Shift / ⌘ 是追加
+  function onMarqueeStart(e: React.PointerEvent) {
+    const inner = innerRef.current
+    const t = e.target as Element
+    if (!inner || e.button !== 0 || e.pointerType !== 'mouse') return
+    if (t.closest('button, a, input, select, [data-label]') || headRef.current?.contains(t)) return
+    const box = inner.getBoundingClientRect()
+    const x0 = e.clientX - box.left
+    const y0 = e.clientY - box.top
+    const additive = e.shiftKey || e.metaKey || e.ctrlKey
+    let active = false
+
+    const move = (ev: PointerEvent) => {
+      const b = inner.getBoundingClientRect()
+      const x1 = ev.clientX - b.left
+      const y1 = ev.clientY - b.top
+      if (!active && Math.hypot(x1 - x0, y1 - y0) < 5) return
+      active = true
+      setMarquee({ x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) })
+    }
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      setMarquee(null)
+      if (!active) return
+      suppressClick.current = true
+      setTimeout(() => (suppressClick.current = false), 0)
+      const b = inner.getBoundingClientRect()
+      const left = Math.min(x0, ev.clientX - b.left) + b.left
+      const right = Math.max(x0, ev.clientX - b.left) + b.left
+      const top = Math.min(y0, ev.clientY - b.top) + b.top
+      const bottom = Math.max(y0, ev.clientY - b.top) + b.top
+      const hit = new Set<number>(additive ? sel : [])
+      inner.querySelectorAll<HTMLElement>('[data-ids]').forEach((el) => {
+        const r = el.getBoundingClientRect()
+        if (r.right >= left && r.left <= right && r.bottom >= top && r.top <= bottom) {
+          for (const id of el.dataset.ids!.split(',')) hit.add(Number(id))
+        }
+      })
+      setSel(hit)
+      setPicked(null)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
+  function deleteSelected() {
+    unschedule([...sel])
+    const n = [...sel].filter((id) => plan?.schedule[id] !== undefined).length
+    setSel(new Set())
+    if (n) setToast(`已删除 ${n} 集的排期`)
+  }
+
+  // Delete / Backspace 删框选的排期，Esc 取消框选、点选和弹窗
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const t = e.target as Element | null
+      if (t?.closest?.('input, select, textarea')) return
+      if (e.key === 'Escape') {
+        setSel(new Set())
+        setPicked(null)
+        setTray(null)
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && sel.size) {
+        e.preventDefault()
+        deleteSelected()
+      }
+    }
+    window.addEventListener('keydown', key)
+    return () => window.removeEventListener('keydown', key)
+  })
 
   function togglePick(i: WallItem) {
     if (!plan) return
@@ -384,6 +459,8 @@ export function Plan({ me, source }: { me: Me; source: SourceId }) {
   if (!plan || !today) return null
 
   const pickedRow = picked ? rows.find((r) => r.item.id === picked.sid) : undefined
+  const trayRow = tray ? rows.find((r) => r.item.id === tray.sid) : undefined
+  const selManual = [...sel].filter((id) => plan.schedule[id] !== undefined).length
   const pickedEps = pickedRow ? pickedRow.eps.filter((e) => picked!.ids.includes(e.id)) : []
   const loadingCollections = collections.loading
   const colProgress = collections.progress
@@ -518,7 +595,7 @@ export function Plan({ me, source }: { me: Me; source: SourceId }) {
             <span className="ml-auto flex items-center gap-3 text-[11px]" style={{ color: 'var(--fg-muted)' }}>
               <Legend color="var(--accent)" label="连载放送" />
               <Legend color={MANUAL} label="自己排的" />
-              <span className="hidden sm:inline">拖动集块换日子，点日期看当天计划</span>
+              <span className="hidden lg:inline">拖动集块换日子 · 空白处拖框批量选中</span>
             </span>
           </div>
 
@@ -527,7 +604,25 @@ export function Plan({ me, source }: { me: Me; source: SourceId }) {
             className="timeline panel no-scrollbar relative max-h-[70vh] overflow-auto rounded-2xl md:max-h-none md:min-h-0 md:flex-1 md:rounded-none md:border-0 md:bg-transparent md:backdrop-blur-none"
             style={{ overscrollBehaviorX: 'contain' }}
           >
-            <div className="relative" style={{ width: `calc(var(--label-w) + ${days.length * dayW}px)` }}>
+            <div
+              ref={innerRef}
+              className="relative select-none"
+              style={{ width: `calc(var(--label-w) + ${days.length * dayW}px)` }}
+              onPointerDown={onMarqueeStart}
+            >
+              {marquee ? (
+                <div
+                  className="pointer-events-none absolute z-30 rounded-sm"
+                  style={{
+                    left: marquee.x,
+                    top: marquee.y,
+                    width: marquee.w,
+                    height: marquee.h,
+                    background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
+                    border: '1px solid var(--accent)',
+                  }}
+                />
+              ) : null}
               {/* 表头：月份 / 第几周 / 日期 + 周几，点日期即选中那天 */}
               <div
                 ref={headRef}
@@ -652,7 +747,6 @@ export function Plan({ me, source }: { me: Me; source: SourceId }) {
               <div ref={rowsRef}>
               {rows.map((row) => {
                 const sid = row.item.id
-                const open = trayOpen[sid] ?? (!row.live && row.tray.length > 0)
                 const hoverIdx = hover?.sid === sid ? hover.idx : null
                 const canDropHere = picked?.sid === sid
                 return (
@@ -660,8 +754,8 @@ export function Plan({ me, source }: { me: Me; source: SourceId }) {
                     <div className="flex" style={{ height: ROW_H }}>
                       <RowLabel
                         row={row}
-                        open={open}
-                        onToggleTray={() => setTrayOpen((o) => ({ ...o, [sid]: !open }))}
+                        open={tray?.sid === sid}
+                        onToggleTray={(anchor) => setTray((t) => (t?.sid === sid ? null : { sid, anchor }))}
                         onRemove={() => togglePick(row.item)}
                       />
                       <div
@@ -691,6 +785,8 @@ export function Plan({ me, source }: { me: Me; source: SourceId }) {
                           setPicked(null)
                         }}
                         onClick={(e) => {
+                          if (suppressClick.current) return
+                          clearSel()
                           const x = e.clientX - e.currentTarget.getBoundingClientRect().left
                           const day = days[Math.max(0, Math.min(days.length - 1, Math.floor(x / dayW)))]
                           if (picked?.sid === sid) {
@@ -714,6 +810,7 @@ export function Plan({ me, source }: { me: Me; source: SourceId }) {
                           const allWatched = list.every((e) => row.watched.has(e.id))
                           const isPicked = picked?.sid === sid && list.every((e) => picked.ids.includes(e.id))
                           const ids = list.map((e) => e.id)
+                          const isSel = ids.some((id) => sel.has(id))
                           return (
                             <button
                               key={d}
@@ -727,8 +824,19 @@ export function Plan({ me, source }: { me: Me; source: SourceId }) {
                                 if (manual) setTimeout(() => setDraggingManual(true), 0)
                               }}
                               onDragEnd={endDrag}
+                              data-ids={ids.join(',')}
                               onClick={(e) => {
                                 e.stopPropagation()
+                                // Shift / ⌘ 点击：加入或移出框选
+                                if (e.shiftKey || e.metaKey || e.ctrlKey) {
+                                  setSel((s) => {
+                                    const n = new Set(s)
+                                    for (const id of ids) isSel ? n.delete(id) : n.add(id)
+                                    return n
+                                  })
+                                  return
+                                }
+                                clearSel()
                                 setFocus(d)
                                 setPicked(isPicked ? null : { sid, ids })
                               }}
@@ -739,8 +847,9 @@ export function Plan({ me, source }: { me: Me; source: SourceId }) {
                                 width: dayW - 4,
                                 background: onAir ? 'var(--accent)' : MANUAL,
                                 opacity: allWatched ? 0.38 : 1,
-                                outline: isPicked ? '2px solid var(--fg)' : 'none',
+                                outline: isPicked || isSel ? '2px solid var(--fg)' : 'none',
                                 outlineOffset: 1,
+                                boxShadow: isSel ? '0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent)' : undefined,
                                 cursor: 'grab',
                               }}
                             >
@@ -751,30 +860,6 @@ export function Plan({ me, source }: { me: Me; source: SourceId }) {
                       </div>
                     </div>
 
-                    {open ? (
-                      <Tray
-                        row={row}
-                        width={viewW}
-                        focus={focus}
-                        today={today}
-                        picked={picked}
-                        onPick={(ids) =>
-                          setPicked((p) =>
-                            p?.sid === sid && p.ids.length === ids.length && ids.every((id) => p.ids.includes(id))
-                              ? null
-                              : { sid, ids },
-                          )
-                        }
-                        onDragStart={(ids) => (dragRef.current = { sid, ids, manual: false })}
-                        onDragEnd={endDrag}
-                        onDropBack={() => {
-                          const d = dragRef.current
-                          if (d?.sid === sid) unschedule(d.ids)
-                        }}
-                        onAuto={(n) => autoSchedule(row, n)}
-                        onClear={() => clearRow(row)}
-                      />
-                    ) : null}
                   </div>
                 )
               })}
@@ -798,11 +883,14 @@ export function Plan({ me, source }: { me: Me; source: SourceId }) {
                   className="flex"
                   style={{ height: ROW_H, borderBottom: '1px solid var(--border)' }}
                   onClick={(e) => {
+                    if (suppressClick.current) return
+                    clearSel()
                     const x = e.clientX - e.currentTarget.getBoundingClientRect().left - e.currentTarget.firstElementChild!.getBoundingClientRect().width
                     if (x >= 0) setFocus(days[Math.max(0, Math.min(days.length - 1, Math.floor(x / dayW)))])
                   }}
                 >
                   <div
+                    data-label
                     className="sticky left-0 z-10 flex shrink-0 items-center px-3 text-[11px]"
                     style={{
                       width: 'var(--label-w)',
@@ -880,6 +968,65 @@ export function Plan({ me, source }: { me: Me; source: SourceId }) {
         </div>
       ) : null}
 
+      {/* 框选后的批量操作条 */}
+      {sel.size && !picked ? (
+        <div
+          className="fixed inset-x-0 bottom-4 z-40 mx-auto flex w-fit max-w-[calc(100vw-2rem)] flex-wrap items-center gap-2 rounded-2xl px-4 py-2.5 text-xs"
+          style={{ background: 'var(--panel-solid)', boxShadow: 'var(--shadow)', border: '1px solid var(--border)' }}
+        >
+          <span>
+            已框选 <b>{sel.size}</b> 集{selManual < sel.size ? `，其中 ${selManual} 集是自己排的` : ''}
+          </span>
+          <button
+            onClick={deleteSelected}
+            disabled={!selManual}
+            className="rounded-lg px-2 py-1 text-white disabled:opacity-40"
+            style={{ background: '#ef4444' }}
+            title="Delete / Backspace"
+          >
+            删除排期
+          </button>
+          <button
+            onClick={() => setSel(new Set())}
+            className="rounded-lg px-2 py-1"
+            style={{ background: 'color-mix(in srgb, var(--fg) 8%, transparent)' }}
+            title="Esc"
+          >
+            取消
+          </button>
+        </div>
+      ) : null}
+
+      {tray && trayRow ? (
+        <TrayPopover
+          key={tray.sid}
+          row={trayRow}
+          anchor={tray.anchor}
+          defaultStart={focus < today ? today : focus}
+          today={today}
+          fading={chipDragging}
+          onClose={() => setTray(null)}
+          onPick={(ids) => {
+            setPicked({ sid: tray.sid, ids })
+            setTray(null)
+          }}
+          onDragStart={(ids) => {
+            dragRef.current = { sid: tray.sid, ids, manual: false }
+            setTimeout(() => setChipDragging(true), 0)
+          }}
+          onDragEnd={() => {
+            endDrag()
+            setChipDragging(false)
+          }}
+          onDropBack={() => {
+            const d = dragRef.current
+            if (d?.sid === tray.sid) unschedule(d.ids)
+          }}
+          onAuto={(start, mode, n) => autoSchedule(trayRow, start, mode, n)}
+          onClear={() => clearRow(trayRow)}
+        />
+      ) : null}
+
       {draggingManual ? (
         <div
           className="pointer-events-none fixed inset-x-0 bottom-4 z-40 mx-auto w-fit max-w-[calc(100vw-2rem)] rounded-2xl px-4 py-2.5 text-xs"
@@ -953,12 +1100,13 @@ function RowLabel({
 }: {
   row: Row
   open: boolean
-  onToggleTray: () => void
+  onToggleTray: (anchor: HTMLElement) => void
   onRemove: () => void
 }) {
   const { item } = row
   return (
     <div
+      data-label
       className="group/label sticky left-0 z-10 flex shrink-0 items-center gap-2 px-2 sm:px-3"
       style={{ width: 'var(--label-w)', background: 'var(--panel-solid)', borderRight: '1px solid var(--border)' }}
     >
@@ -982,17 +1130,17 @@ function RowLabel({
           </span>
         </div>
       </div>
-      {row.tray.length || open ? (
+      {row.tray.length || row.manual || open ? (
         <button
-          onClick={onToggleTray}
+          onClick={(e) => onToggleTray(e.currentTarget)}
           className="shrink-0 rounded px-1 text-[10px] leading-4 whitespace-nowrap"
           style={{
             background: open ? MANUAL : `color-mix(in srgb, ${MANUAL} 15%, transparent)`,
             color: open ? '#fff' : MANUAL,
           }}
-          title="还没排日子的集"
+          title="排期：还没排日子的集、自动排"
         >
-          待排 {row.tray.length}
+          {row.tray.length ? `待排 ${row.tray.length}` : '排期'}
         </button>
       ) : null}
       <button
@@ -1007,12 +1155,14 @@ function RowLabel({
   )
 }
 
-function Tray({
+/** 番名旁边的排期小弹窗：待排的集（拖到时间线上）、自动排、清空 */
+function TrayPopover({
   row,
-  width,
-  focus,
+  anchor,
+  defaultStart,
   today,
-  picked,
+  fading,
+  onClose,
   onPick,
   onDragStart,
   onDragEnd,
@@ -1021,31 +1171,94 @@ function Tray({
   onClear,
 }: {
   row: Row
-  width: number
-  focus: string
+  anchor: HTMLElement
+  defaultStart: string
   today: string
-  picked: Picked | null
+  /** 正从这里拖集出去：变透明并放行鼠标 */
+  fading: boolean
+  onClose: () => void
   onPick: (ids: number[]) => void
   onDragStart: (ids: number[]) => void
   onDragEnd: () => void
   onDropBack: () => void
-  onAuto: (perDay: number) => void
+  onAuto: (start: string, mode: AutoMode, perSlot: number) => void
   onClear: () => void
 }) {
-  const [perDay, setPerDay] = useState(2)
+  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+  const [start, setStart] = useState(defaultStart)
+  const [mode, setMode] = useState<AutoMode>('daily')
+  const [perSlot, setPerSlot] = useState(1)
   const [over, setOver] = useState(false)
-  const from = focus < today ? today : focus
+
+  // 贴着「待排」按钮右侧；右边放不下就放到按钮下面。时间线滚动时跟着走
+  useLayoutEffect(() => {
+    const place = () => {
+      const el = ref.current
+      if (!el) return
+      const a = anchor.getBoundingClientRect()
+      const w = el.offsetWidth
+      const h = el.offsetHeight
+      let left = a.right + 8
+      let top = a.top - 8
+      if (left + w > window.innerWidth - 8) {
+        left = Math.max(8, window.innerWidth - w - 8)
+        top = a.bottom + 6
+      }
+      top = Math.max(8, Math.min(top, window.innerHeight - h - 8))
+      setPos({ left, top })
+    }
+    place()
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
+  }, [anchor, row.tray.length])
+
+  // 点弹窗和按钮以外的地方就关掉
+  useEffect(() => {
+    const down = (e: PointerEvent) => {
+      const t = e.target as Node
+      if (ref.current?.contains(t) || anchor.contains(t)) return
+      onClose()
+    }
+    window.addEventListener('pointerdown', down)
+    return () => window.removeEventListener('pointerdown', down)
+  }, [anchor, onClose])
+
+  const base = originalBase(row.tray)
+  const preview = row.tray.length && start ? autoPlan(row.tray, start, mode, perSlot) : {}
+  const last = Object.values(preview).reduce<string | null>((a, b) => (!a || b > a ? b : a), null)
+  const hint =
+    mode === 'original'
+      ? base
+        ? `原作每周${weekdayOf(base)}更新 → 改到每周${weekdayOf(start)}，间隔照原作（停播周也保留）`
+        : '没有原作放送日期，按每周排'
+      : mode === 'weekly'
+        ? `每周${weekdayOf(start)}看 ${perSlot} 集`
+        : mode === 'alternate'
+          ? `每两天看 ${perSlot} 集`
+          : `每天看 ${perSlot} 集`
+  const chipBtn = 'rounded-md px-2 py-0.5 text-[11px] transition-colors'
 
   return (
     <div
+      ref={ref}
       data-drop-zone
-      className="sticky left-0 px-3 py-2"
+      role="dialog"
+      aria-label={`${row.item.name} 的排期`}
+      className="fixed z-50 w-[320px] max-w-[calc(100vw-1rem)] rounded-xl p-3 text-xs"
       style={{
-        width: width || '100%',
-        background: over
-          ? `color-mix(in srgb, ${MANUAL} 12%, var(--panel-solid))`
-          : `color-mix(in srgb, ${MANUAL} 5%, var(--panel-solid))`,
-        borderTop: '1px dashed var(--border)',
+        left: pos?.left ?? -9999,
+        top: pos?.top ?? 0,
+        background: over ? `color-mix(in srgb, ${MANUAL} 10%, var(--panel-solid))` : 'var(--panel-solid)',
+        border: '1px solid var(--border)',
+        boxShadow: 'var(--shadow)',
+        opacity: fading ? 0.25 : 1,
+        pointerEvents: fading ? 'none' : undefined,
+        transition: 'opacity .12s',
       }}
       onDragOver={(e) => {
         e.preventDefault()
@@ -1058,69 +1271,106 @@ function Tray({
         onDropBack()
       }}
     >
-      <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[11px]" style={{ color: 'var(--fg-muted)' }}>
-        <span>
-          {row.tray.length ? `${row.tray.length} 集待排 · 拖到上面那一行的日期上，或点一下再点日期` : '都排好了 · 把集块拖回这里可以取消排期'}
-        </span>
-        {row.tray.length ? (
-          <span className="flex items-center gap-1">
-            从 {relativeDayLabel(from, today)} 起每天
-            <select
-              value={perDay}
-              onChange={(e) => setPerDay(Number(e.target.value))}
-              className="rounded px-1 py-0.5 text-[11px] outline-none"
-              style={{ background: 'color-mix(in srgb, var(--fg) 8%, transparent)', color: 'var(--fg)' }}
-            >
-              {[1, 2, 3, 4, 6, 12].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-            集
-            <button
-              onClick={() => onAuto(perDay)}
-              className="rounded px-2 py-0.5 text-white"
-              style={{ background: MANUAL }}
-            >
-              自动排
-            </button>
-          </span>
-        ) : null}
-        {row.manual ? (
-          <button onClick={onClear} className="underline underline-offset-2 hover:opacity-70">
-            清空这部的排期
-          </button>
-        ) : null}
+      <div className="mb-2 flex items-center gap-2">
+        <span className="min-w-0 flex-1 truncate font-semibold">{row.item.name}</span>
+        <button onClick={onClose} className="px-1 text-sm leading-none hover:opacity-70" style={{ color: 'var(--fg-muted)' }} title="关闭 (Esc)">
+          ×
+        </button>
       </div>
+
+      <p className="mb-1.5 text-[11px]" style={{ color: 'var(--fg-muted)' }}>
+        {row.tray.length ? `${row.tray.length} 集待排 · 拖到这一行的日期上，或点一下再点日期` : '都排好了 · 把集块拖回这里可以取消排期'}
+      </p>
       {row.tray.length ? (
-        <div className="flex flex-wrap gap-1">
-          {row.tray.map((e) => {
-            const on = picked?.sid === row.item.id && picked.ids.includes(e.id)
-            return (
+        <div className="mb-3 flex max-h-28 flex-wrap gap-1 overflow-y-auto">
+          {row.tray.map((e) => (
+            <button
+              key={e.id}
+              draggable
+              onDragStart={(ev) => {
+                ev.dataTransfer.setData('text/plain', String(e.id))
+                ev.dataTransfer.effectAllowed = 'move'
+                onDragStart([e.id])
+              }}
+              onDragEnd={onDragEnd}
+              onClick={() => onPick([e.id])}
+              title={`第${e.sort}话${e.name ? ` ${e.name}` : ''}${e.airdate ? `\n首播 ${e.airdate}` : ''}`}
+              className="min-w-7 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums"
+              style={{ background: `color-mix(in srgb, ${MANUAL} 16%, transparent)`, color: MANUAL, cursor: 'grab' }}
+            >
+              {e.sort}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {row.tray.length ? (
+        <div className="space-y-2 rounded-lg p-2" style={{ background: 'color-mix(in srgb, var(--fg) 5%, transparent)' }}>
+          <div className="flex flex-wrap gap-1">
+            {AUTO_MODES.map((m) => (
               <button
-                key={e.id}
-                draggable
-                onDragStart={(ev) => {
-                  ev.dataTransfer.setData('text/plain', String(e.id))
-                  ev.dataTransfer.effectAllowed = 'move'
-                  onDragStart([e.id])
-                }}
-                onDragEnd={onDragEnd}
-                onClick={() => onPick([e.id])}
-                title={`第${e.sort}话${e.name ? ` ${e.name}` : ''}${e.airdate ? `\n首播 ${e.airdate}` : ''}`}
-                className="min-w-7 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums transition-colors"
+                key={m.id}
+                onClick={() => setMode(m.id)}
+                className={chipBtn}
                 style={{
-                  background: on ? MANUAL : `color-mix(in srgb, ${MANUAL} 16%, transparent)`,
-                  color: on ? '#fff' : MANUAL,
-                  cursor: 'grab',
+                  background: mode === m.id ? MANUAL : 'color-mix(in srgb, var(--fg) 8%, transparent)',
+                  color: mode === m.id ? '#fff' : 'var(--fg)',
                 }}
               >
-                {e.sort}
+                {m.label}
               </button>
-            )
-          })}
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5" style={{ color: 'var(--fg-muted)' }}>
+            从
+            <input
+              type="date"
+              value={start}
+              min={today}
+              onChange={(e) => e.target.value && setStart(e.target.value)}
+              className="rounded px-1 py-0.5 text-[11px] outline-none"
+              style={{ background: 'color-mix(in srgb, var(--fg) 8%, transparent)', color: 'var(--fg)', colorScheme: 'light dark' }}
+            />
+            <span>周{weekdayOf(start)}</span>
+            {mode !== 'original' ? (
+              <>
+                起，每次
+                <select
+                  value={perSlot}
+                  onChange={(e) => setPerSlot(Number(e.target.value))}
+                  className="rounded px-1 py-0.5 text-[11px] outline-none"
+                  style={{ background: 'color-mix(in srgb, var(--fg) 8%, transparent)', color: 'var(--fg)' }}
+                >
+                  {[1, 2, 3, 4, 6, 12].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+                集
+              </>
+            ) : (
+              '起'
+            )}
+          </div>
+          <p className="text-[11px]" style={{ color: 'var(--fg-muted)' }}>
+            {hint}
+            {last ? `，排到 ${last.slice(5).replace('-', '/')} 周${weekdayOf(last)}` : ''}
+          </p>
+          <button
+            onClick={() => onAuto(start, mode, perSlot)}
+            className="w-full rounded-md py-1 text-white"
+            style={{ background: MANUAL }}
+          >
+            自动排 {row.tray.length} 集
+          </button>
         </div>
+      ) : null}
+
+      {row.manual ? (
+        <button onClick={onClear} className="mt-2 text-[11px] underline underline-offset-2 hover:opacity-70" style={{ color: 'var(--fg-muted)' }}>
+          清空这部的排期
+        </button>
       ) : null}
     </div>
   )

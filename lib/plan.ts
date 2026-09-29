@@ -163,3 +163,65 @@ export function shouldPrefetch(i: WallItem, today: string) {
   if (i.status === 3) return true
   return !i.date || diffDays(i.date, today) < 450
 }
+
+// ---- 自动排 ----
+
+export type AutoMode = 'daily' | 'alternate' | 'weekly' | 'original'
+
+export const AUTO_MODES: { id: AutoMode; label: string }[] = [
+  { id: 'daily', label: '每天' },
+  { id: 'alternate', label: '隔一天' },
+  { id: 'weekly', label: '每周' },
+  { id: 'original', label: '按原作节奏' },
+]
+
+const STEP: Record<Exclude<AutoMode, 'original'>, number> = { daily: 1, alternate: 2, weekly: 7 }
+
+/** 原作放送的基准日：待排的集里第一个有放送日期的 */
+export function originalBase(eps: Episode[]): string | null {
+  return eps.find((e) => e.airdate)?.airdate ?? null
+}
+
+/**
+ * 给一串待排的集算日子，返回 集 id → 日期。
+ *
+ * - 每天 / 隔一天 / 每周：从 start 起每个时段排 perSlot 集
+ * - 按原作节奏：保持原作两集之间的间隔（停播周也照搬），整体平移到 start。
+ *   比如原作每周日更新、start 是周四，就变成每周四一集；perSlot 不起作用
+ *
+ * 不管哪种，都不会把集排在它的首播日之前。
+ */
+export function autoPlan(eps: Episode[], start: string, mode: AutoMode, perSlot: number): Record<number, string> {
+  const out: Record<number, string> = {}
+  if (mode === 'original') {
+    const base = originalBase(eps)
+    let last: string | null = null
+    for (const e of eps) {
+      let d: string
+      if (base && e.airdate) d = addDays(start, diffDays(base, e.airdate))
+      else d = last ? addDays(last, 7) : start // 没有放送日期的按每周接着排
+      if (e.airdate && d < e.airdate) d = e.airdate
+      out[e.id] = d
+      last = d
+    }
+    return out
+  }
+
+  const step = STEP[mode]
+  let d = start
+  let count = 0
+  for (const e of eps) {
+    if (count >= perSlot) {
+      d = addDays(d, step)
+      count = 0
+    }
+    // 还没播到的集往后顺延，但保持同样的节奏
+    while (e.airdate && e.airdate > d) {
+      d = addDays(d, step)
+      count = 0
+    }
+    out[e.id] = d
+    count++
+  }
+  return out
+}

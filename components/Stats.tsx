@@ -309,6 +309,13 @@ export function Stats({ username, source }: { username: string; source: SourceId
 
         <div className="mb-4 space-y-1 px-1 text-xs leading-relaxed" style={{ color: 'var(--fg-muted)' }}>
           <p>只统计动画里的「看过」和「在看」，在看的算到已点的格子。不足 10 分钟的集算泡面番。在封面下方可以填每部番刷了几遍。月按 30 天、年按 365 天换算。</p>
+          <p>
+            如果显示不准，请到
+            <Link href="/" className="underline">
+              主页
+            </Link>
+            再获取一次数据。
+          </p>
           {estimated > 0 ? <p>其中 {estimated.toLocaleString('zh-CN')} 集 Bangumi 上没有时长，是估算的，这些番的时长前带 ≈。</p> : null}
           {missing.length > 0 ? (
             <details>

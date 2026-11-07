@@ -205,7 +205,12 @@ export function Stats({ username, source, aiEnabled }: { username: string; sourc
   const groups = TILES.map((t) => ({ ...t, rows: rows.filter((r) => r.item.status === t.status) }))
   const estimated = sum(rows, 'estimated')
   // 等数字加载完再取，免得中途的总数也去生成一遍
-  const blurb = useBlurb(sum(rows, timeKey) / 3600, aiEnabled && !collections.loading && !progress)
+  const blurb = useBlurb(
+    sum(rows, timeKey) / 3600,
+    rows.length,
+    rows.filter((r) => r.item.status === 5).length,
+    aiEnabled && !collections.loading && !progress,
+  )
   const backdrop = rows.find((r) => r.item.cover)?.item.cover ?? null
   const ratio = collections.progress && collections.progress.total > 0
     ? collections.progress.loaded / collections.progress.total

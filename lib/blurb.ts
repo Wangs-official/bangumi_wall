@@ -12,3 +12,23 @@ export function blurbBucket(hours: number): number {
   const step = Math.max(1, 10 ** Math.floor(Math.log10(h)) / 5)
   return Math.round(h / step) * step
 }
+
+/** 发给 AI 的统计，都是档位，同一档的人共用一条文案 */
+export interface BlurbInput {
+  hours: number
+  /** 计入的番剧部数 */
+  shows: number
+  /** 其中抛弃的部数，可以是 0 */
+  dropped: number
+}
+
+export function blurbInput(hours: number, shows: number, dropped: number): BlurbInput | null {
+  const h = blurbBucket(hours)
+  const s = blurbBucket(shows)
+  if (!h || !s) return null
+  return { hours: h, shows: s, dropped: Math.min(blurbBucket(dropped), s) }
+}
+
+export function blurbKey({ hours, shows, dropped }: BlurbInput) {
+  return `${hours}-${shows}-${dropped}`
+}

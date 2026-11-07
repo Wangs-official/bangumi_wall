@@ -65,9 +65,9 @@ export function fillFromRuntime(durations: number[], runtime: Runtime | null | u
   return durations.map(() => Math.round(runtime.seconds / durations.length))
 }
 
-/** 只统计看过的和在看的动画 */
+/** 统计看过、在看、搁置、抛弃的动画，想看的不算 */
 export function isCounted(i: WallItem) {
-  return i.subjectType === 2 && (i.status === 2 || i.status === 3)
+  return i.subjectType === 2 && i.status >= 2 && i.status <= 5
 }
 
 function median(values: number[]) {
@@ -78,12 +78,12 @@ function median(values: number[]) {
 /**
  * 算一部番看了多久。durations 是已播出的正片时长（秒），按集数顺序，0 表示没有数据。
  *
- * 看过的算全部集，在看的算到已点的格子。收藏里只有「看到第几集」一个数，
+ * 看过的算全部集，在看、搁置、抛弃的算到已点的格子。收藏里只有「看到第几集」一个数，
  * 所以和时间线一样按顺序数前 n 集。缺时长的集优先按同一部番其他集的中位数估算。
  * times 是刷的遍数，结果整体乘上去。
  */
 export function subjectStats(item: WallItem, durations: number[], opts: StatsOptions, times = 1): SubjectStats {
-  const watched = item.status === 3 ? durations.slice(0, item.epStatus) : durations
+  const watched = item.status === 2 ? durations : durations.slice(0, item.epStatus)
   const known = durations.filter((d) => d > 0)
   const guess = known.length ? median(known) : opts.fallbackSeconds
 

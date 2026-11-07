@@ -137,6 +137,15 @@ function TimesField({ name, value, onChange }: { name: string; value: number; on
   )
 }
 
+const TILES = [
+  { status: 2, label: '看过' },
+  { status: 3, label: '在看' },
+  { status: 4, label: '搁置' },
+  { status: 5, label: '抛弃' },
+]
+
+const FETCH_ORDER: Record<number, number> = { 3: 0, 2: 1, 4: 2, 5: 3 }
+
 function Tile({ label, seconds, eps, count, unit }: { label: string; seconds: number; eps: number; count: number; unit: TimeUnit }) {
   return (
     <div className="panel min-w-0 rounded-2xl px-4 py-3">
@@ -157,12 +166,13 @@ export function Stats({ username, source, aiEnabled }: { username: string; sourc
   const [prefs, setPrefs] = usePersisted(`bw_stats:${username}`, DEFAULT_PREFS)
 
   const counted = useMemo(
-    // 在看但一格没点的，时长是 0，不用取
+    // 没看过的除外，一格没点的时长是 0，不用取
     () => (collections.items ?? []).filter((i) => isCounted(i) && (i.status === 2 || i.epStatus > 0)),
     [collections.items],
   )
   const ids = useMemo(
-    () => [...counted].sort((a, b) => b.status - a.status || a.id - b.id).map((i) => i.id),
+    // 在看的先取，搁置、抛弃的最后
+    () => [...counted].sort((a, b) => FETCH_ORDER[a.status] - FETCH_ORDER[b.status] || a.id - b.id).map((i) => i.id),
     [counted],
   )
   const { durations, progress, error } = useDurations(ids, source)
@@ -192,8 +202,7 @@ export function Stats({ username, source, aiEnabled }: { username: string; sourc
 
   const unit = prefs.unit
   const timeKey = prefs.deduct ? 'netSeconds' : 'fullSeconds'
-  const finished = rows.filter((r) => r.item.status === 2)
-  const watching = rows.filter((r) => r.item.status === 3)
+  const groups = TILES.map((t) => ({ ...t, rows: rows.filter((r) => r.item.status === t.status) }))
   const estimated = sum(rows, 'estimated')
   // 等数字加载完再取，免得中途的总数也去生成一遍
   const blurb = useBlurb(sum(rows, timeKey) / 3600, aiEnabled && !collections.loading && !progress)
@@ -274,9 +283,10 @@ export function Stats({ username, source, aiEnabled }: { username: string; sourc
           ) : null}
         </section>
 
-        <div className="mb-3 grid grid-cols-2 gap-3">
-          <Tile label="看过" seconds={sum(finished, timeKey)} eps={sum(finished, 'eps')} count={finished.length} unit={unit} />
-          <Tile label="在看" seconds={sum(watching, timeKey)} eps={sum(watching, 'eps')} count={watching.length} unit={unit} />
+        <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {groups.map((g) => (
+            <Tile key={g.status} label={g.label} seconds={sum(g.rows, timeKey)} eps={sum(g.rows, 'eps')} count={g.rows.length} unit={unit} />
+          ))}
         </div>
 
         <div className="panel mb-3 flex flex-wrap items-center gap-x-2 gap-y-2.5 rounded-2xl px-3 py-2.5 sm:px-4 sm:py-3">
@@ -320,7 +330,7 @@ export function Stats({ username, source, aiEnabled }: { username: string; sourc
         </div>
 
         <div className="mb-4 space-y-1 px-1 text-xs leading-relaxed" style={{ color: 'var(--fg-muted)' }}>
-          <p>只统计动画里的「看过」和「在看」，在看的算到已点的格子。不足 10 分钟的集算泡面番。在封面下方可以填每部番刷了几遍。月按 30 天、年按 365 天换算。</p>
+          <p>统计动画里的「看过」「在看」「搁置」「抛弃」，后三种算到已点的格子。不足 10 分钟的集算泡面番。在封面下方可以填每部番刷了几遍。月按 30 天、年按 365 天换算。</p>
           <p>
             如果显示不准，请到
             <Link href="/" className="underline">
@@ -348,7 +358,7 @@ export function Stats({ username, source, aiEnabled }: { username: string; sourc
 
         {rows.length === 0 && collections.items && !progress ? (
           <div className="panel rounded-xl p-8 text-center text-sm" style={{ color: 'var(--fg-muted)' }}>
-            还没有看过或在看的动画
+            还没有看过的动画
           </div>
         ) : (
           <div className="wall-grid stats-grid" style={GRID_STYLE}>

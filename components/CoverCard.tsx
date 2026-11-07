@@ -16,13 +16,16 @@ function CoverCardInner({
   item,
   display,
   showTypeIcon,
+  subtitle: customSubtitle,
 }: {
   item: WallItem
   display: DisplayConfig
   showTypeIcon: boolean
+  /** 自定义小标题，给了就不按 display.subtitleFields 拼 */
+  subtitle?: string
 }) {
   const title = renderTitle(item, display.titleMode)
-  const subtitle = renderSubtitle(item, display.subtitleFields)
+  const subtitle = customSubtitle ?? renderSubtitle(item, display.subtitleFields)
   const comment = display.showComment ? item.comment : ''
   const hasCaption = Boolean(title || subtitle || comment)
   // 交给浏览器按 DPR 挑档位。sizes 是格子的大致 CSS 宽度，
@@ -80,7 +83,8 @@ function CoverCardInner({
             </p>
           ) : null}
           {subtitle ? (
-            <p className="mt-0.5 truncate text-[10px] sm:text-[11px]" style={{ color: 'var(--fg-muted)' }}>
+            // 自定义小标题里是要看全的数字，窄卡片上折行而不是截断
+            <p className={`mt-0.5 text-[10px] sm:text-[11px] ${customSubtitle ? '' : 'truncate'}`} style={{ color: 'var(--fg-muted)' }}>
               {subtitle}
             </p>
           ) : null}

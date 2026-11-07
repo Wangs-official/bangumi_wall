@@ -8,6 +8,8 @@ export interface Episode {
   name: string
   /** YYYY-MM-DD；没公布就是 null */
   airdate: string | null
+  /** 时长（秒），0 表示 Bangumi 没有数据；加这个字段之前缓存的剧集没有它 */
+  duration?: number
 }
 
 /**

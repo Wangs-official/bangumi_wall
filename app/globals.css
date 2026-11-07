@@ -117,6 +117,14 @@ body {
   }
 }
 
+/* 看番时长：桌面上固定一行 10 个，放不下的窄屏仍按 wall-grid 自动排 */
+@media (min-width: 1024px) {
+  .stats-grid {
+    gap: 1.25rem 0.75rem;
+    grid-template-columns: repeat(10, minmax(0, 1fr));
+  }
+}
+
 /* 类别栏在手机上横向滚动，不折行 */
 .tab-scroll {
   overflow-x: auto;

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { DEFAULT_SOURCE, USER_AGENT, baseOf, isSourceId } from '@/lib/bangumi'
 import { normalizeAirdate, type Episode } from '@/lib/plan'
 import { readSession } from '@/lib/session'
+import { runtimeOfSubject, type Runtime } from '@/lib/stats'
 
 /**
  * 批量取条目的正片剧集（含放送日期），给看番时间线用。
@@ -36,11 +37,23 @@ async function fetchEpisodes(base: string, id: number): Promise<Episode[]> {
         sort: e.sort ?? e.ep ?? 0,
         name: e.name_cn || e.name || '',
         airdate: normalizeAirdate(e.airdate),
+        duration: e.duration_seconds ?? 0,
       })
     }
     if (list.length < PAGE || out.length >= (data.total ?? 0)) break
   }
   return out
+}
+
+/** 条目详情里的片长。条目取不到（比如需要登录才能看的）就当没有，其他失败照常抛出、下回再试 */
+async function fetchRuntime(base: string, id: number): Promise<Runtime | null> {
+  const res = await fetch(`${base}/v0/subjects/${id}`, {
+    headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+    cache: 'no-store',
+  })
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error(`subject ${res.status}`)
+  return runtimeOfSubject(await res.json())
 }
 
 export async function GET(req: Request) {
@@ -62,6 +75,9 @@ export async function GET(req: Request) {
   const base = baseOf(source)
   // 取失败的给 null，前端据此不写缓存、下回再试
   const episodes: Record<number, Episode[] | null> = {}
+  // 看番时长才要：分集一个时长都没有的条目，多查一次详情拿片长。时间线用不到，不传就不查
+  const wantRuntime = params.get('runtime') === '1'
+  const runtimes: Record<number, Runtime | null> = {}
 
   let cursor = 0
   await Promise.all(
@@ -69,7 +85,9 @@ export async function GET(req: Request) {
       while (cursor < ids.length) {
         const id = ids[cursor++]
         try {
-          episodes[id] = await fetchEpisodes(base, id)
+          const eps = await fetchEpisodes(base, id)
+          if (wantRuntime && !eps.some((e) => e.duration)) runtimes[id] = await fetchRuntime(base, id)
+          episodes[id] = eps
         } catch {
           episodes[id] = null
         }
@@ -77,5 +95,5 @@ export async function GET(req: Request) {
     }),
   )
 
-  return NextResponse.json({ source, episodes }, { headers: { 'Cache-Control': 'no-store' } })
+  return NextResponse.json({ source, episodes, runtimes }, { headers: { 'Cache-Control': 'no-store' } })
 }

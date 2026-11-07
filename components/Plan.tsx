@@ -476,6 +476,9 @@ export function Plan({ me, source }: { me: Me; source: SourceId }) {
           <Link href="/grid" className={BAR_BTN} style={BAR_BTN_STYLE}>
             喜好表
           </Link>
+          <Link href="/stats" className={BAR_BTN} style={BAR_BTN_STYLE}>
+            时长
+          </Link>
         </div>
       </header>
 

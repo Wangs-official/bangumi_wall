@@ -9,5 +9,5 @@ export default async function StatsPage() {
   const session = await readSession()
   if (!session) redirect('/')
 
-  return <Stats username={session.username} source={DEFAULT_SOURCE} />
+  return <Stats username={session.username} source={DEFAULT_SOURCE} aiEnabled={Boolean(process.env.DEEPSEEK_API_KEY)} />
 }

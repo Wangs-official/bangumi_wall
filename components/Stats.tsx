@@ -18,6 +18,7 @@ import {
 import { BAR_BTN, BAR_BTN_STYLE, Chip, ChipGroup, Divider } from './Chip'
 import { CoverCard } from './CoverCard'
 import { ProgressBar } from './Progress'
+import { useBlurb } from './useBlurb'
 import { useCollections } from './useCollections'
 import { useDurations } from './useDurations'
 import { usePersisted } from './usePersisted'
@@ -150,7 +151,7 @@ function Tile({ label, seconds, eps, count, unit }: { label: string; seconds: nu
   )
 }
 
-export function Stats({ username, source }: { username: string; source: SourceId }) {
+export function Stats({ username, source, aiEnabled }: { username: string; source: SourceId; aiEnabled: boolean }) {
   const collections = useCollections(username, source)
   // 几刷是跟人走的，按用户名分开存
   const [prefs, setPrefs] = usePersisted(`bw_stats:${username}`, DEFAULT_PREFS)
@@ -194,6 +195,8 @@ export function Stats({ username, source }: { username: string; source: SourceId
   const finished = rows.filter((r) => r.item.status === 2)
   const watching = rows.filter((r) => r.item.status === 3)
   const estimated = sum(rows, 'estimated')
+  // 等数字加载完再取，免得中途的总数也去生成一遍
+  const blurb = useBlurb(sum(rows, timeKey) / 3600, aiEnabled && !collections.loading && !progress)
   const backdrop = rows.find((r) => r.item.cover)?.item.cover ?? null
   const ratio = collections.progress && collections.progress.total > 0
     ? collections.progress.loaded / collections.progress.total
@@ -260,6 +263,14 @@ export function Stats({ username, source }: { username: string; source: SourceId
               : `未扣除 OP/ED；扣除后共 ${formatTime(sum(rows, 'netSeconds'), unit)}`}
             {rows.some((r) => r.times > 1) ? '。已计入二刷及以上' : ''}
           </p>
+          {blurb ? (
+            <p className="mt-3 text-sm sm:text-base">
+              {blurb}
+              <span className="ml-2 text-xs" style={{ color: 'var(--fg-muted)' }}>
+                AI 生成
+              </span>
+            </p>
+          ) : null}
         </section>
 
         <div className="mb-3 grid grid-cols-2 gap-3">

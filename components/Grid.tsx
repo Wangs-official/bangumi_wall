@@ -13,7 +13,7 @@ import {
   type GridState,
 } from '@/lib/grid'
 import { renderGridImage } from '@/lib/export-grid'
-import { BAR_BTN, BAR_BTN_STYLE } from './Chip'
+import { BAR_BTN, BAR_BTN_STYLE, GitHubLink } from './Chip'
 import { ProgressBar } from './Progress'
 import { useCollections } from './useCollections'
 
@@ -200,6 +200,7 @@ export function Grid({ me, source }: { me: Me; source: SourceId }) {
           <Link href="/stats" className={BAR_BTN} style={BAR_BTN_STYLE}>
             时长
           </Link>
+          <GitHubLink />
           <button onClick={() => setGrid(defaultGrid(subjectType))} className={BAR_BTN} style={BAR_BTN_STYLE}>
             重置
           </button>

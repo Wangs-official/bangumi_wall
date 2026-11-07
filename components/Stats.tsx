@@ -15,7 +15,7 @@ import {
   type SubjectStats,
   type TimeUnit,
 } from '@/lib/stats'
-import { BAR_BTN, BAR_BTN_STYLE, Chip, ChipGroup, Divider } from './Chip'
+import { BAR_BTN, BAR_BTN_STYLE, GitHubLink, Chip, ChipGroup, Divider } from './Chip'
 import { CoverCard } from './CoverCard'
 import { ProgressBar } from './Progress'
 import { useBlurb } from './useBlurb'
@@ -219,6 +219,7 @@ export function Stats({ username, source, aiEnabled }: { username: string; sourc
             <Link href="/plan" className={BAR_BTN} style={BAR_BTN_STYLE}>
               时间线
             </Link>
+            <GitHubLink />
           </div>
         </header>
 

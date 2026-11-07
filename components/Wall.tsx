@@ -21,7 +21,7 @@ import {
 } from '@/lib/display'
 import { renderWallImage } from '@/lib/export-image'
 import { buildClusters } from '@/lib/series'
-import { BAR_BTN, BAR_BTN_STYLE, Chip, ChipGroup, Divider } from './Chip'
+import { BAR_BTN, BAR_BTN_STYLE, GitHubLink, Chip, ChipGroup, Divider } from './Chip'
 import { ButtonFill, ProgressBar } from './Progress'
 import { CoverCard } from './CoverCard'
 import { ListRow } from './ListRow'
@@ -282,6 +282,7 @@ export function Wall({ me }: { me: Me }) {
             <Link href="/stats" className={BAR_BTN} style={BAR_BTN_STYLE}>
               时长
             </Link>
+            <GitHubLink />
 
             <button
               onClick={exportImage}
